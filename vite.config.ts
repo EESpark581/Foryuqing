@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: resolve(ROOT, 'index.html'),
         settings: resolve(ROOT, 'settings.html'),
+        bubble: resolve(ROOT, 'bubble.html'),
       },
     },
   },

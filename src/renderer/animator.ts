@@ -4,6 +4,8 @@ import type { FrameKey, SpriteSheet } from './sprite';
 import type { MouthKey } from './mouth';
 import { SPRITE_SIZE } from './sprite';
 
+const BLINK_DURATION = 0.14;
+
 export class Animator {
   private time = 0;
   private stateAge = 0;
@@ -66,7 +68,7 @@ export class Animator {
     } else if (this.state !== 'sleep') {
       this.blinkCountdown -= dt;
       if (this.blinkCountdown <= 0) {
-        this.blinkRemaining = 0.14;
+        this.blinkRemaining = BLINK_DURATION;
         this.blinkCountdown = 3 + Math.random() * 4;
       }
     }
@@ -107,7 +109,6 @@ export class Animator {
 
     let frame: FrameKey = 'idle0';
     if (this.state === 'sleep') frame = 'sleep';
-    else if (this.blinkRemaining > 0) frame = 'blink';
     else if (this.state === 'happy' || this.state === 'eating' || this.state === 'petted') frame = 'happy';
     else if (breath > 0.55) frame = 'idle1';
 
@@ -118,6 +119,13 @@ export class Animator {
     ctx.translate(-S / 2, -S / 2);
 
     ctx.drawImage(this.sheet.frames[frame], 0, 0, S, S);
+    if (this.blinkRemaining > 0 && this.state !== 'sleep') {
+      const progress = 1 - this.blinkRemaining / BLINK_DURATION;
+      const transition = Math.max(0, Math.min(1, progress / 0.28, (1 - progress) / 0.28));
+      ctx.globalAlpha = transition * transition * (3 - 2 * transition);
+      ctx.drawImage(this.sheet.frames.blink, 0, 0, S, S);
+      ctx.globalAlpha = 1;
+    }
 
     const mouth = this.sheet.mouths[this.mouthKey(motion)];
     ctx.drawImage(mouth.canvas, mouth.x, mouth.y);

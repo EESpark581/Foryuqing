@@ -34,8 +34,11 @@ PROTECT_CX, PROTECT_CY = 0.52, 0.66
 PROTECT_RX, PROTECT_RY = 0.27, 0.33
 PROTECT_TOLERANCE = 16
 
-# The artwork has a horizontal floor reflection below the paws.
-FLOOR_CLEAR_FROM = 0.982
+# The artwork has a horizontal floor reflection below the paws. Anything
+# shorter than this many pixels in a vertical scan in the lower part of the
+# image is treated as that reflection and dropped, while the paws survive.
+STREAK_ZONE_FROM = 0.86
+STREAK_MAX_THICKNESS = 50
 
 
 def background_distance(rgb: np.ndarray, size: int) -> np.ndarray:
@@ -111,6 +114,48 @@ def keep_largest_component(opaque: np.ndarray) -> np.ndarray:
     return result
 
 
+def remove_thin_streaks(alpha: np.ndarray) -> np.ndarray:
+    """Drop the thin horizontal floor reflection that sits under the paws.
+
+    A vertical morphological opening keeps only shapes that are at least
+    ``STREAK_MAX_THICKNESS`` pixels tall, so the paws and tail survive while
+    the flat glare line (a few pixels high) is cleared.
+    """
+    height, width = alpha.shape
+    solid = alpha > 40
+    radius = STREAK_MAX_THICKNESS // 2
+
+    eroded = np.ones_like(solid)
+    for dy in range(-radius, radius + 1):
+        shifted = np.ones_like(solid)
+        if dy < 0:
+            shifted[:dy, :] = solid[-dy:, :]
+        elif dy > 0:
+            shifted[dy:, :] = solid[:-dy, :]
+        else:
+            shifted[:] = solid[:]
+        eroded &= shifted
+
+    opened = np.zeros_like(solid)
+    for dy in range(-radius, radius + 1):
+        shifted = np.zeros_like(solid)
+        if dy < 0:
+            shifted[:dy, :] = eroded[-dy:, :]
+        elif dy > 0:
+            shifted[dy:, :] = eroded[:-dy, :]
+        else:
+            shifted[:] = eroded[:]
+        opened |= shifted
+
+    zone = np.zeros_like(solid)
+    zone[int(height * STREAK_ZONE_FROM):, :] = True
+    drop = zone & solid & ~opened
+
+    cleaned = alpha.copy()
+    cleaned[drop] = 0
+    return cleaned
+
+
 def nearest_foreground(rgb: np.ndarray, opaque: np.ndarray) -> np.ndarray:
     """Fill transparent areas with nearby fur colour to avoid dark fringes."""
     estimate = rgb.copy()
@@ -155,11 +200,7 @@ def main() -> None:
     alpha = np.clip(alpha, 0, 255)
 
     # Remove the floor reflection beneath the paws.
-    floor = int(SIZE * FLOOR_CLEAR_FROM)
-    alpha[floor:, :] = 0
-    softness = max(2, int(SIZE * 0.003))
-    for row in range(floor - softness, floor):
-        alpha[row, :] *= (row - (floor - softness)) / softness
+    alpha = remove_thin_streaks(alpha)
 
     # Remove the blue background colour that JPEG anti-aliasing left in the
     # semi-transparent fur edge, then seed fully transparent pixels with fur

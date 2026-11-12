@@ -80,6 +80,12 @@ function createWebApi(): PetAPI {
     },
     dragEnded: () => undefined,
     setIgnoreMouseEvents: () => undefined,
+    // Browser preview has no second window: bubbles render inside the page.
+    showBubble: () => undefined,
+    onBubble: () => () => undefined,
+    reportBubbleSize: () => undefined,
+    bubbleReady: () => undefined,
+    fetchBubble: async () => null,
     loadState: async () => read(),
     saveStats: (stats) => {
       const state = read();
@@ -210,7 +216,11 @@ async function boot(): Promise<void> {
 
   // Every line the pet says animates the mouth for the bubble's lifetime.
   state.onBubble = (text, ms) => {
-    bubble.show(text, ms);
+    // In Electron the bubble floats in its own window: the pet window is only
+    // ~88px wide and would clip any sentence. The in-page bubble stays as the
+    // browser-preview fallback.
+    if (api.isElectron) api.showBubble(text, ms ?? 2600);
+    else bubble.show(text, ms);
     animator.setTalking(ms ?? 2600);
   };
   state.onSound = () => playMeow(state.settings.volume);

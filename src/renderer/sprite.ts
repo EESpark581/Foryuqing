@@ -380,33 +380,284 @@ function sampleFur(ctx: CanvasRenderingContext2D, cx: number, cy: number): strin
   return 'rgb(246, 246, 255)';
 }
 
+interface Rgb {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/** Deterministic PRNG so a given frame always looks identical. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function cssRgb(colour: Rgb, alpha = 1): string {
+  const r = Math.round(Math.max(0, Math.min(255, colour.r)));
+  const g = Math.round(Math.max(0, Math.min(255, colour.g)));
+  const b = Math.round(Math.max(0, Math.min(255, colour.b)));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Push a colour towards white (k > 1) or into shadow (k < 1). */
+function shade(colour: Rgb, k: number): Rgb {
+  if (k >= 1) {
+    const t = Math.min(1, k - 1) * 1.1;
+    return {
+      r: colour.r + (255 - colour.r) * t,
+      g: colour.g + (255 - colour.g) * t,
+      b: colour.b + (255 - colour.b) * t,
+    };
+  }
+  return { r: colour.r * k, g: colour.g * k, b: colour.b * k };
+}
+
+/**
+ * Draw one tapered hair, wide at the root and pointed at the tip.
+ *
+ * Filled shapes read as fur far better than uniform strokes, which is what
+ * makes the closed eyelid look fluffy instead of drawn.
+ */
+function drawHair(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dx: number,
+  len: number,
+  width: number,
+  bend: number,
+  colour: string,
+): void {
+  const tipX = x + dx * len;
+  const tipY = y + len;
+  const midX = x + dx * len * 0.45 + bend;
+  const midY = y + len * 0.5;
+  ctx.fillStyle = colour;
+  ctx.beginPath();
+  ctx.moveTo(x - width, y);
+  ctx.quadraticCurveTo(midX - width * 0.5, midY, tipX, tipY);
+  ctx.quadraticCurveTo(midX + width * 0.5, midY, x + width, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * Paint one closed eye so the lid reads as fluffy fur.
+ *
+ * The eye is covered with a feathered patch interpolated from the actual fur
+ * above and below it, so local face shading continues through the closed lid.
+ */
+function drawFluffyLid(
+  ctx: CanvasRenderingContext2D,
+  sourcePixels: Uint8ClampedArray,
+  cx: number,
+  cy: number,
+  r: number,
+  kind: 'blink' | 'happy' | 'sleep',
+  seed: number,
+): void {
+  const rand = seeded(seed);
+  const sample = (x: number, y: number): Rgb => {
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let count = 0;
+    for (let py = -2; py <= 2; py += 1) {
+      for (let px = -2; px <= 2; px += 1) {
+        const sx = Math.max(0, Math.min(SPRITE_SIZE - 1, Math.round(x) + px));
+        const sy = Math.max(0, Math.min(SPRITE_SIZE - 1, Math.round(y) + py));
+        const offset = (sy * SPRITE_SIZE + sx) * 4;
+        if (sourcePixels[offset + 3] < 128) continue;
+        red += sourcePixels[offset];
+        green += sourcePixels[offset + 1];
+        blue += sourcePixels[offset + 2];
+        count += 1;
+      }
+    }
+    if (count === 0) return { r: 246, g: 246, b: 255 };
+    return { r: red / count, g: green / count, b: blue / count };
+  };
+  const halfW = r * 1.12;
+  const halfH = r * 1.03;
+  const width = Math.ceil(halfW * 2);
+  const height = Math.ceil(halfH * 2);
+  const lidCanvas = document.createElement('canvas');
+  lidCanvas.width = width;
+  lidCanvas.height = height;
+  const lidCtx = lidCanvas.getContext('2d')!;
+  const lid = lidCtx.createImageData(width, height);
+  const furTop: Rgb[] = [];
+  const furBottom: Rgb[] = [];
+  for (let x = 0; x < width; x += 1) {
+    const faceX = cx - halfW + x;
+    furTop.push(sample(faceX, cy - halfH * 1.08));
+    furBottom.push(sample(faceX, cy + halfH * 1.08));
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    const v = (y / (height - 1)) * 2 - 1;
+    for (let x = 0; x < width; x += 1) {
+      const u = (x / (width - 1)) * 2 - 1;
+      const distance = Math.hypot(u, v);
+      if (distance >= 1) continue;
+      const t = (v + 1) / 2;
+      const top = furTop[x];
+      const bottom = furBottom[x];
+      const offset = (y * width + x) * 4;
+      const edge = Math.max(0, Math.min(1, (1 - distance) * Math.min(halfW, halfH) * 0.8));
+      const alpha = edge * edge * (3 - 2 * edge);
+      lid.data[offset] = Math.round(top.r + (bottom.r - top.r) * t);
+      lid.data[offset + 1] = Math.round(top.g + (bottom.g - top.g) * t);
+      lid.data[offset + 2] = Math.round(top.b + (bottom.b - top.b) * t);
+      lid.data[offset + 3] = Math.round(255 * alpha);
+    }
+  }
+  lidCtx.putImageData(lid, 0, 0);
+  ctx.drawImage(lidCanvas, Math.round(cx - halfW), Math.round(cy - halfH));
+
+  const topMid = furTop[Math.floor(width / 2)];
+  const bottomMid = furBottom[Math.floor(width / 2)];
+  const furMid = shade(
+    {
+      r: (topMid.r + bottomMid.r) / 2,
+      g: (topMid.g + bottomMid.g) / 2,
+      b: (topMid.b + bottomMid.b) / 2,
+    },
+    0.96,
+  );
+
+  const lidY = cy + r * (kind === 'sleep' ? 0.26 : 0.14);
+
+  if (kind === 'happy') {
+    // ^ shaped grin, drawn as soft fur shading rather than a hard outline.
+    const arcR = r * 0.6;
+    const arcCy = cy + r * 0.44;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = cssRgb(shade(furMid, 0.72), 0.32);
+    ctx.lineWidth = r * 0.11;
+    ctx.beginPath();
+    ctx.arc(cx, arcCy, arcR, Math.PI * 1.12, Math.PI * 1.88);
+    ctx.stroke();
+
+    ctx.strokeStyle = cssRgb(topMid, 0.34);
+    ctx.lineWidth = r * 0.05;
+    ctx.beginPath();
+    ctx.arc(cx, arcCy - r * 0.05, arcR * 0.95, Math.PI * 1.16, Math.PI * 1.84);
+    ctx.stroke();
+
+    for (let i = 0; i < 12; i += 1) {
+      const t = i / 11;
+      const angle = Math.PI * (1.12 + 0.76 * t);
+      const px = cx + Math.cos(angle) * arcR;
+      const py = arcCy + Math.sin(angle) * arcR;
+      drawHair(
+        ctx,
+        px,
+        py,
+        Math.cos(angle) * 0.35,
+        r * (0.14 + rand() * 0.1),
+        r * 0.028,
+        Math.sin(angle) * r * 0.03,
+        cssRgb(rand() > 0.4 ? topMid : furMid, 0.42 + rand() * 0.18),
+      );
+    }
+    return;
+  }
+
+  // 2. Volume: a soft shadow under the lid.
+  const shadeGrad = ctx.createLinearGradient(cx, lidY - r * 0.32, cx, lidY + r * 0.3);
+  shadeGrad.addColorStop(0, cssRgb(shade(furMid, 0.86), 0));
+  shadeGrad.addColorStop(0.55, cssRgb(shade(furMid, 0.86), 0.18));
+  shadeGrad.addColorStop(1, cssRgb(shade(furMid, 0.86), 0.02));
+  ctx.fillStyle = shadeGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, lidY + r * 0.04, r * 0.96, r * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. Fringe: short tapered hairs hanging from the lid line.
+  const hairs = 26;
+  for (let i = 0; i < hairs; i += 1) {
+    const t = i / (hairs - 1);
+    const x = cx - halfW * 0.86 + halfW * 1.72 * t;
+    const arc = Math.sin(Math.PI * t);
+    const y = lidY - r * 0.1 * arc;
+    const dir = t < 0.5 ? -0.5 : 0.5;
+    const len = r * (0.11 + rand() * 0.12) * (0.55 + arc * 0.75);
+    drawHair(
+      ctx,
+      x,
+      y,
+      dir * 0.35,
+      len,
+      r * (0.022 + rand() * 0.014),
+      dir * r * 0.02,
+      cssRgb(rand() > 0.45 ? shade(furMid, 0.8) : furMid, 0.28 + rand() * 0.16),
+    );
+  }
+
+  // A few longer hairs at the corners break the silhouette without becoming
+  // spiky lashes.
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 3; i += 1) {
+      drawHair(
+        ctx,
+        cx + side * halfW * (0.8 + i * 0.06),
+        lidY + r * 0.02 + i * r * 0.05,
+        side * 0.28,
+        r * (0.2 + rand() * 0.08),
+        r * 0.022,
+        side * r * 0.03,
+        cssRgb(shade(furMid, 0.76), 0.24 + rand() * 0.1),
+      );
+    }
+  }
+
+  // Soft fuzz along the fold unifies the hairs with the lid.
+  ctx.save();
+  ctx.filter = 'blur(4px)';
+  ctx.strokeStyle = cssRgb(furMid, 0.3);
+  ctx.lineWidth = r * 0.16;
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW * 0.86, lidY - r * 0.1);
+  ctx.quadraticCurveTo(cx, lidY + r * 0.12, cx + halfW * 0.86, lidY - r * 0.1);
+  ctx.stroke();
+  ctx.restore();
+
+  // 4. Lid crease: soft, but strong enough to read as a closed eye.
+  ctx.strokeStyle = cssRgb(shade(furMid, 0.7), 0.2);
+  ctx.lineWidth = r * 0.045;
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW * 0.9, lidY - r * 0.12);
+  ctx.quadraticCurveTo(cx, lidY + r * 0.16, cx + halfW * 0.9, lidY - r * 0.12);
+  ctx.stroke();
+
+  // 5. A softer fold line above it for a little depth.
+  ctx.strokeStyle = cssRgb(shade(furMid, 0.8), 0.08);
+  ctx.lineWidth = r * 0.04;
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW * 0.66, lidY - r * 0.36);
+  ctx.quadraticCurveTo(cx, lidY - r * 0.16, cx + halfW * 0.66, lidY - r * 0.36);
+  ctx.stroke();
+}
+
 /** Derive an expression frame by painting closed / smiling eyes. */
 function expressionFrame(base: HTMLCanvasElement, kind: 'blink' | 'happy' | 'sleep'): HTMLCanvasElement {
   const S = SPRITE_SIZE;
   const canvas = cloneCanvas(base);
   const ctx = canvas.getContext('2d')!;
   const source = base.getContext('2d', { willReadFrequently: true })!;
+  const sourcePixels = source.getImageData(0, 0, S, S).data;
 
-  for (const eye of EYES) {
+  for (let eyeIndex = 0; eyeIndex < EYES.length; eyeIndex += 1) {
+    const eye = EYES[eyeIndex];
     const cx = eye.x * S;
     const cy = eye.y * S;
     const r = eye.r * S;
 
-    ctx.fillStyle = sampleFur(source, cx, cy - r * 1.5);
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, r * 1.14, r * 1.04, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = kind === 'happy' ? '#4d5c86' : '#5a6b90';
-    ctx.lineWidth = Math.max(2, r * 0.14);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    if (kind === 'happy') {
-      ctx.arc(cx, cy + r * 0.32, r * 0.64, Math.PI * 1.08, Math.PI * 1.92);
-    } else {
-      ctx.arc(cx, cy - r * 0.04, r * 0.7, Math.PI * 0.12, Math.PI * 0.88);
-    }
-    ctx.stroke();
+    drawFluffyLid(ctx, sourcePixels, cx, cy, r, kind, 8191 + eyeIndex * 137);
 
     if (kind === 'happy') {
       ctx.fillStyle = 'rgba(255,170,195,0.42)';

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Eye frames preview</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f4f7fd;
+        font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+        color: #33415c;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0 0 16px;
+      }
+      .grid {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      figure {
+        margin: 0;
+        background: #fff;
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: 0 4px 14px rgba(90, 120, 170, 0.14);
+      }
+      canvas {
+        display: block;
+        width: 300px;
+        height: 300px;
+        border-radius: 10px;
+      }
+      figcaption {
+        font-size: 12px;
+        text-align: center;
+        margin-top: 8px;
+        color: #5b6c8c;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Eyelid frames (2x face zoom)</h1>
+    <div class="grid" id="grid"></div>
+    <script type="module" src="./src/eye-preview.ts"></script>
+  </body>
+</html>

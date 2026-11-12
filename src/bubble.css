@@ -1,0 +1,50 @@
+/* Speech bubble window: transparent canvas, one glass pill of text. */
+:root {
+  --ink: #43567e;
+  --glass: rgba(255, 255, 255, 0.92);
+  --border: rgba(178, 200, 232, 0.85);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2px;
+}
+
+.bubble {
+  display: inline-block;
+  max-width: 212px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--glass);
+  box-shadow: 0 4px 14px rgba(80, 120, 180, 0.24);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: center;
+}
+
+.bubble:empty {
+  display: none;
+}

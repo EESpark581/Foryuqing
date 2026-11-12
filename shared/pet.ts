@@ -86,6 +86,11 @@ export const IPC = {
   QUIT: 'pet:quit',
   ACTION: 'pet:action',
   RESET_SIGNAL: 'pet:reset-signal',
+  BUBBLE_SHOW: 'pet:bubble-show',
+  BUBBLE_SIZE: 'pet:bubble-size',
+  BUBBLE_HIDE: 'pet:bubble-hide',
+  BUBBLE_READY: 'pet:bubble-ready',
+  BUBBLE_FETCH: 'pet:bubble-fetch',
 } as const;
 
 export interface PetAPI {
@@ -102,6 +107,16 @@ export interface PetAPI {
   openSettings(): void;
   openContextMenu(): void;
   quit(): void;
+  /** Ask the main process to float a speech bubble above the pet. */
+  showBubble(text: string, ms?: number): void;
+  /** Bubble window only: receive the line it must render. */
+  onBubble(handler: (payload: { text: string; duration: number }) => void): () => void;
+  /** Bubble window only: report the measured content box to the main process. */
+  reportBubbleSize(width: number, height: number): void;
+  /** Bubble window only: announce that the listener is attached. */
+  bubbleReady(): void;
+  /** Bubble window only: pull the line that is currently pending. */
+  fetchBubble(): Promise<{ text: string; duration: number } | null>;
   onAction(handler: (action: PetAction) => void): () => void;
   onSettingsChanged(handler: (settings: PetSettings) => void): () => void;
   onReset(handler: () => void): () => void;

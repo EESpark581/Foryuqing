@@ -475,12 +475,19 @@ export async function buildSpriteSheet(_settings?: PetSettings): Promise<SpriteS
   if (source.isVector) {
     base = source.canvas;
   } else {
-    const result = cutOutBackground(source.canvas);
-    if (result.removed > MAX_REMOVED_RATIO) {
+    try {
+      const result = cutOutBackground(source.canvas);
+      if (result.removed > MAX_REMOVED_RATIO) {
+        fallback = true;
+        base = featheredCard(source.canvas);
+      } else {
+        base = result.canvas;
+      }
+    } catch (error) {
+      // A tainted canvas (e.g. strict file:// policy) must never blank the pet.
+      console.warn('[pet] Cutout unavailable, using the feathered card fallback:', error);
       fallback = true;
       base = featheredCard(source.canvas);
-    } else {
-      base = result.canvas;
     }
   }
 

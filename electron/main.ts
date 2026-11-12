@@ -10,6 +10,10 @@ import { buildContextMenu, createTray, refreshTray } from './tray';
 const DEV_URL = process.env.PET_DEV_URL;
 const BASE_SIZE = 280;
 
+// The built app loads from file://. Allow canvas getImageData() on the local
+// reference artwork so the runtime cutout works outside the Vite dev server.
+app.commandLine.appendSwitch('allow-file-access-from-files');
+
 let petWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;

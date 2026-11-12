@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>星露灵猫</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="pet-canvas" width="512" height="512"></canvas>
+      <canvas id="fx-canvas" width="512" height="512"></canvas>
+
+      <div id="bubble" class="bubble" role="status" aria-live="polite"></div>
+
+      <div id="hud" class="hud">
+        <div class="meter">
+          <span class="meter__label">心情</span>
+          <div class="meter__track"><i id="mood-bar"></i></div>
+        </div>
+        <div class="meter">
+          <span class="meter__label">饱食</span>
+          <div class="meter__track"><i id="satiety-bar"></i></div>
+        </div>
+      </div>
+
+      <div id="web-menu" class="web-menu" hidden></div>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

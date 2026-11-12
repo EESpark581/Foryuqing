@@ -1,0 +1,26 @@
+{
+  "name": "stardew-spirit-cat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A lightweight frameless desktop pet powered by Electron + TypeScript + Vite.",
+  "main": "dist-electron/electron/main.js",
+  "author": "Jack Long",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:electron && npm run build:renderer",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "dist": "npm run build && electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

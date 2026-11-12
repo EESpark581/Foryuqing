@@ -1,6 +1,7 @@
-/** Frame selection and whole-body motion for the pet canvas. */
+/** Frame selection, whole-body motion and mouth-pose compositing. */
 import type { PetMoodState, PetSettings } from '../../shared/pet';
 import type { FrameKey, SpriteSheet } from './sprite';
+import type { MouthKey } from './mouth';
 import { SPRITE_SIZE } from './sprite';
 
 export class Animator {
@@ -9,6 +10,7 @@ export class Animator {
   private state: PetMoodState = 'idle';
   private blinkCountdown = 3 + Math.random() * 3;
   private blinkRemaining = 0;
+  private talkRemaining = 0;
   private settings: PetSettings;
 
   constructor(
@@ -31,10 +33,32 @@ export class Animator {
     this.stateAge = 0;
   }
 
+  /** Keep the mouth moving for as long as a speech bubble is visible. */
+  setTalking(ms: number): void {
+    this.talkRemaining = Math.max(this.talkRemaining, ms / 1000);
+  }
+
+  /** Pick the mouth pose for this frame; pose changes drive chew/talk loops. */
+  private mouthKey(motion: boolean): MouthKey {
+    if (this.state === 'sleep') return 'sleepy';
+    if (this.state === 'eating') {
+      return motion && Math.sin(this.stateAge * 21) > 0 ? 'chewOpen' : 'chew';
+    }
+    if (this.state === 'dragged') return 'mew';
+    if (this.state === 'remind') return 'surprised';
+    if (this.talkRemaining > 0 && this.state !== 'happy' && this.state !== 'petted') {
+      return motion && Math.sin(this.time * 25) > 0 ? 'talkWide' : 'talk';
+    }
+    if (this.state === 'happy' || this.state === 'petted') return 'grin';
+    if (this.blinkRemaining > 0) return 'smileSoft';
+    return 'smile';
+  }
+
   /** Advance clocks. @param dt seconds since the previous frame */
   update(dt: number): void {
     this.time += dt;
     this.stateAge += dt;
+    if (this.talkRemaining > 0) this.talkRemaining = Math.max(0, this.talkRemaining - dt);
 
     if (!this.settings.motionEnabled) return;
     if (this.blinkRemaining > 0) {
@@ -95,6 +119,9 @@ export class Animator {
 
     ctx.drawImage(this.sheet.frames[frame], 0, 0, S, S);
 
+    const mouth = this.sheet.mouths[this.mouthKey(motion)];
+    ctx.drawImage(mouth.canvas, mouth.x, mouth.y);
+
     if (motion) {
       ctx.globalCompositeOperation = 'screen';
       ctx.globalAlpha = 0.4 + 0.35 * (0.5 + 0.5 * Math.sin(this.time * 1.8));
@@ -104,8 +131,11 @@ export class Animator {
     }
 
     if (this.state === 'sleep') {
+      // source-atop keeps the tint on the fur instead of drawing a backdrop.
+      ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = 'rgba(35,55,105,0.08)';
       ctx.fillRect(0, 0, S, S);
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     ctx.restore();

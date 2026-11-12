@@ -7,3 +7,10 @@ out/
 .vs/
 .idea/
 pet-state.json
+.edge-preview/
+.edge-verify/
+mouth-sheet.png
+cut-compare.png
+window-transparent-check.png
+/pet-*.png
+*.check.png

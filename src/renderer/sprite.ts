@@ -1,23 +1,30 @@
 /**
  * Runtime sprite generation.
  *
- * The repository ships a single static reference image. At startup we remove
- * its blue gradient background with a seeded flood fill, then derive the
- * expression frames (blink / happy / sleep) and a soft-light decor layer.
- * No image-generation API and no external binary assets are required.
+ * The pet renders from one transparent character PNG (baked once from the
+ * reference artwork by scripts/make_transparent.py). No backdrop is ever drawn.
+ * Expression frames (blink / happy / sleep), vector mouth overlays and a
+ * soft-light decor layer clipped to the character are derived at startup.
+ * Opaque replacement artwork still gets a runtime flood fill, and a missing
+ * asset degrades to a fully transparent procedural cat.
+ * No image-generation API is required.
  */
 import type { PetSettings } from '../../shared/pet';
+import type { MouthLayers } from './mouth';
+import { PHOTO_ANCHOR, VECTOR_ANCHOR, buildMouthLayers } from './mouth';
 
 export type FrameKey = 'idle0' | 'idle1' | 'blink' | 'happy' | 'sleep';
 
 export interface SpriteSheet {
   frames: Record<FrameKey, HTMLCanvasElement>;
+  mouths: MouthLayers;
   decor: HTMLCanvasElement;
   fallback: boolean;
 }
 
 export const SPRITE_SIZE = 512;
-export const SOURCE_PATH = './assets/reference.jpg';
+/** Transparent character asset; no backdrop is ever drawn behind the pet. */
+export const SOURCE_PATH = './assets/pet.png';
 
 const SEED_TOLERANCE = 26;
 const GROW_TOLERANCE = 34;
@@ -185,23 +192,8 @@ function drawProceduralCat(ctx: CanvasRenderingContext2D): void {
     ctx.ellipse(x, 268, 24, 12, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.fillStyle = '#ff9fb2';
-  ctx.beginPath();
-  ctx.moveTo(256, 268);
-  ctx.lineTo(244, 260);
-  ctx.lineTo(268, 260);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = '#7d6e93';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(256, 270);
-  ctx.lineTo(256, 278);
-  ctx.arc(244, 278, 12, 0, Math.PI * 0.55);
-  ctx.moveTo(256, 278);
-  ctx.arc(268, 278, 12, Math.PI * 0.45, Math.PI);
-  ctx.stroke();
+  // Nose and mouth are supplied by the shared mouth overlay layers, so the
+  // vector cat gets exactly the same expressive muzzle as the photo artwork.
 
   // Forehead gem, collar and pendant.
   ctx.fillStyle = 'rgba(190,235,255,0.95)';
@@ -228,24 +220,34 @@ function drawProceduralCat(ctx: CanvasRenderingContext2D): void {
 }
 
 /**
- * Load the reference image, or fall back to a vector cat drawn on canvas.
+ * Load the transparent character asset, or draw a transparent vector cat when
+ * it is missing. A corner alpha test decides whether a replacement image is
+ * already cut out; only opaque artwork needs the runtime flood fill.
  */
-function loadSource(): Promise<{ canvas: HTMLCanvasElement; isVector: boolean }> {
+function loadSource(): Promise<{ canvas: HTMLCanvasElement; isVector: boolean; hasAlpha: boolean }> {
   return new Promise((resolve) => {
     const image = new Image();
 
-    image.onload = () => {
-      const canvas = createCanvas();
-      canvas.getContext('2d')!.drawImage(image, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
-      resolve({ canvas, isVector: false });
-    };
-
-    image.onerror = () => {
+    const vectorFallback = (): void => {
       const canvas = createCanvas();
       drawProceduralCat(canvas.getContext('2d')!);
-      resolve({ canvas, isVector: true });
+      resolve({ canvas, isVector: true, hasAlpha: true });
     };
 
+    image.onload = () => {
+      const canvas = createCanvas();
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(image, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
+      let hasAlpha = true;
+      try {
+        hasAlpha = ctx.getImageData(0, 0, 1, 1).data[3] < 250;
+      } catch {
+        // A tainted canvas under strict file:// still means our clean PNG.
+      }
+      resolve({ canvas, isVector: false, hasAlpha });
+    };
+
+    image.onerror = vectorFallback;
     image.src = SOURCE_PATH;
   });
 }
@@ -356,21 +358,6 @@ function cutOutBackground(source: HTMLCanvasElement): { canvas: HTMLCanvasElemen
   return { canvas, removed: tail / (S * S) };
 }
 
-/** Graceful degradation: keep the whole artwork as a soft-edged card. */
-function featheredCard(source: HTMLCanvasElement): HTMLCanvasElement {
-  const canvas = cloneCanvas(source);
-  const ctx = canvas.getContext('2d')!;
-  const gradient = ctx.createRadialGradient(256, 250, 130, 256, 256, 258);
-  gradient.addColorStop(0, 'rgba(0,0,0,1)');
-  gradient.addColorStop(0.72, 'rgba(0,0,0,0.96)');
-  gradient.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-  ctx.globalCompositeOperation = 'source-over';
-  return canvas;
-}
-
 /** Average a small opaque patch of fur to paint over an eye. */
 function sampleFur(ctx: CanvasRenderingContext2D, cx: number, cy: number): string {
   try {
@@ -431,15 +418,19 @@ function expressionFrame(base: HTMLCanvasElement, kind: 'blink' | 'happy' | 'sle
   }
 
   if (kind === 'sleep') {
+    // Tint the character only; a full-canvas fill would paint a visible
+    // rectangle on the transparent window.
+    ctx.globalCompositeOperation = 'source-atop';
     ctx.fillStyle = 'rgba(40,60,110,0.1)';
     ctx.fillRect(0, 0, S, S);
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   return canvas;
 }
 
-/** Additive glow layer for wings, forehead gem and collar pendant. */
-function buildDecor(): HTMLCanvasElement {
+/** Additive glow layer clipped to the character so no light floats outside. */
+function buildDecor(base: HTMLCanvasElement): HTMLCanvasElement {
   const S = SPRITE_SIZE;
   const canvas = createCanvas();
   const ctx = canvas.getContext('2d')!;
@@ -460,35 +451,54 @@ function buildDecor(): HTMLCanvasElement {
   glow(0.545 * S, 0.335 * S, 0.05 * S, 'rgba(255,255,255,0.75)');
   glow(0.5 * S, 0.66 * S, 0.055 * S, 'rgba(215,240,255,0.65)');
 
+  // Keep glows on the fur only; otherwise they read as stray backdrop blobs
+  // against a transparent desktop.
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(base, 0, 0, S, S);
+  ctx.globalCompositeOperation = 'source-over';
   return canvas;
 }
 
 /**
- * Build the full sprite sheet. Resolves even when the reference image is
- * absent, so the app never renders a blank window.
+ * Build the full sprite sheet. Resolves even when the character asset is
+ * absent, so the app never renders a blank window - and never a backdrop card.
  */
 export async function buildSpriteSheet(_settings?: PetSettings): Promise<SpriteSheet> {
   const source = await loadSource();
   let base: HTMLCanvasElement;
+  let anchor = PHOTO_ANCHOR;
   let fallback = false;
 
   if (source.isVector) {
     base = source.canvas;
+    anchor = VECTOR_ANCHOR;
+    fallback = true;
+  } else if (source.hasAlpha) {
+    // The shipped asset is already transparent: use it verbatim.
+    base = source.canvas;
   } else {
     try {
       const result = cutOutBackground(source.canvas);
-      if (result.removed > MAX_REMOVED_RATIO) {
-        fallback = true;
-        base = featheredCard(source.canvas);
-      } else {
-        base = result.canvas;
-      }
+      if (result.removed > MAX_REMOVED_RATIO) throw new Error('cutout removed too much');
+      base = result.canvas;
     } catch (error) {
-      // A tainted canvas (e.g. strict file:// policy) must never blank the pet.
-      console.warn('[pet] Cutout unavailable, using the feathered card fallback:', error);
+      // A failed cutout must never reintroduce an opaque rectangle.
+      console.warn('[pet] Cutout unavailable, drawing the procedural cat:', error);
+      base = createCanvas();
+      drawProceduralCat(base.getContext('2d')!);
+      anchor = VECTOR_ANCHOR;
       fallback = true;
-      base = featheredCard(source.canvas);
     }
+  }
+  let furColor = 'rgb(246, 246, 255)';
+  try {
+    furColor = sampleFur(
+      base.getContext('2d', { willReadFrequently: true })!,
+      anchor.noseX,
+      anchor.noseY - anchor.halfWidth * 1.9,
+    );
+  } catch {
+    // A tainted canvas still gets a readable muzzle in the neutral fur tone.
   }
 
   return {
@@ -499,7 +509,8 @@ export async function buildSpriteSheet(_settings?: PetSettings): Promise<SpriteS
       happy: expressionFrame(base, 'happy'),
       sleep: expressionFrame(base, 'sleep'),
     },
-    decor: buildDecor(),
+    mouths: buildMouthLayers(base, furColor, anchor),
+    decor: buildDecor(base),
     fallback,
   };
 }

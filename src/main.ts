@@ -13,6 +13,8 @@ import { Bubble } from './ui/bubble';
 
 const WEB_STATE_KEY = 'stardew-pet-state';
 const DRAG_THRESHOLD = 5;
+/** Ambient drops / sparkles are off by default: the window shows only the pet. */
+const SHOW_AMBIENT_PARTICLES = false;
 
 const webOffset = { x: 0, y: 0 };
 let webScale = DEFAULT_SETTINGS.scale;
@@ -145,15 +147,11 @@ async function boot(): Promise<void> {
 
   if (!api.isElectron) {
     document.body.classList.add('web-mode');
-    const hint = document.createElement('p');
-    hint.className = 'web-hint';
-    hint.textContent = '浏览器预览模式 · 拖拽移动 · 右键菜单 · 双击说话';
-    document.body.appendChild(hint);
   }
 
   const persisted = await api.loadState();
   const sheet = await buildSpriteSheet();
-  if (sheet.fallback) console.warn('[pet] Cutout was rejected; using the feathered card fallback.');
+  if (sheet.fallback) console.warn('[pet] Character asset unavailable; drawing the procedural cat.');
 
   const state = new PetState(api, persisted);
   const bubble = new Bubble(bubbleEl);
@@ -210,7 +208,11 @@ async function boot(): Promise<void> {
     webMenu.hidden = false;
   }
 
-  state.onBubble = (text, ms) => bubble.show(text, ms);
+  // Every line the pet says animates the mouth for the bubble's lifetime.
+  state.onBubble = (text, ms) => {
+    bubble.show(text, ms);
+    animator.setTalking(ms ?? 2600);
+  };
   state.onSound = () => playMeow(state.settings.volume);
   state.onStats = updateHud;
   state.onMoodState = (mood) => animator.setState(mood);
@@ -309,10 +311,11 @@ async function boot(): Promise<void> {
 
     if (!document.hidden) {
       const motion = state.settings.motionEnabled && !reduceMotion;
+      const ambient = SHOW_AMBIENT_PARTICLES && motion;
       animator.update(dt);
-      particles.update(dt, motion);
+      particles.update(dt, ambient);
       animator.render();
-      particles.render(motion);
+      particles.render(ambient);
     }
 
     requestAnimationFrame(frame);
